@@ -1,0 +1,62 @@
+name: "llvm-gnu-multiarch-install"
+description: "Install LLVM toolchain and GNU toolchain artifacts configured for multiarch support"
+inputs:
+  llvm-major-version:
+    description: "Major version of LLVM to install"
+  ubuntu-archs:
+    description: "Space separated list of Ubuntu architectures to configure"
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: prepare-archs
+      shell: bash
+      run: echo "archs=${{ join(inputs.ubuntu-archs, ',') }}" >> $GITHUB_OUTPUT
+
+    - shell: bash
+      run: |
+        sudo apt update
+        DEBIAN_FRONTEND=noninteractive sudo apt install --assume-yes \
+          curl \
+          gnupg
+
+    - shell: bash
+      run: sudo dpkg --add-architecture ${{ steps.prepare-archs.outputs.archs }}
+
+    - shell: bash
+      run: sudo sed -i'' -E 's/^(deb|deb-src) /\1 [arch=amd64] /' /etc/apt/sources.list
+
+    - id: discover-ubuntu-codename
+      shell: bash
+      run: echo "codename=$(lsb_release -cs)" >> $GITHUB_OUTPUT
+
+    - shell: bash
+      run: |
+        echo "deb [arch=${{ steps.prepare-archs.outputs.archs }}] http://ports.ubuntu.com/ubuntu-ports/ ${{ steps.discover-ubuntu-codename.outputs.codename }} main restricted"                               | sudo tee --append /etc/apt/sources.list.d/multiarch.list
+        echo "deb [arch=${{ steps.prepare-archs.outputs.archs }}] http://ports.ubuntu.com/ubuntu-ports/ ${{ steps.discover-ubuntu-codename.outputs.codename }}-updates main restricted"                       | sudo tee --append /etc/apt/sources.list.d/multiarch.list
+        echo "deb [arch=${{ steps.prepare-archs.outputs.archs }}] http://ports.ubuntu.com/ubuntu-ports/ ${{ steps.discover-ubuntu-codename.outputs.codename }} universe"                                      | sudo tee --append /etc/apt/sources.list.d/multiarch.list
+        echo "deb [arch=${{ steps.prepare-archs.outputs.archs }}] http://ports.ubuntu.com/ubuntu-ports/ ${{ steps.discover-ubuntu-codename.outputs.codename }}-updates universe"                              | sudo tee --append /etc/apt/sources.list.d/multiarch.list
+        echo "deb [arch=${{ steps.prepare-archs.outputs.archs }}] http://ports.ubuntu.com/ubuntu-ports/ ${{ steps.discover-ubuntu-codename.outputs.codename }} multiverse"                                    | sudo tee --append /etc/apt/sources.list.d/multiarch.list
+        echo "deb [arch=${{ steps.prepare-archs.outputs.archs }}] http://ports.ubuntu.com/ubuntu-ports/ ${{ steps.discover-ubuntu-codename.outputs.codename }}-updates multiverse"                            | sudo tee --append /etc/apt/sources.list.d/multiarch.list
+        echo "deb [arch=${{ steps.prepare-archs.outputs.archs }}] http://ports.ubuntu.com/ubuntu-ports/ ${{ steps.discover-ubuntu-codename.outputs.codename }}-backports main restricted universe multiverse" | sudo tee --append /etc/apt/sources.list.d/multiarch.list
+        echo "deb [arch=${{ steps.prepare-archs.outputs.archs }}] http://ports.ubuntu.com/ubuntu-ports/ ${{ steps.discover-ubuntu-codename.outputs.codename }}-security main restricted"                      | sudo tee --append /etc/apt/sources.list.d/multiarch.list
+        echo "deb [arch=${{ steps.prepare-archs.outputs.archs }}] http://ports.ubuntu.com/ubuntu-ports/ ${{ steps.discover-ubuntu-codename.outputs.codename }}-security universe"                             | sudo tee --append /etc/apt/sources.list.d/multiarch.list
+        echo "deb [arch=${{ steps.prepare-archs.outputs.archs }}] http://ports.ubuntu.com/ubuntu-ports/ ${{ steps.discover-ubuntu-codename.outputs.codename }}-security multiverse"                           | sudo tee --append /etc/apt/sources.list.d/multiarch.list
+
+    - shell: bash
+      run: |
+        curl -JL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+        echo "deb     [arch=amd64] http://apt.llvm.org/${{ steps.discover-ubuntu-codename.outputs.codename }}/ llvm-toolchain-${{ steps.discover-ubuntu-codename.outputs.codename }}-${{ inputs.llvm-major-version }} main" | sudo tee --append /etc/apt/sources.list.d/llvm.list
+        echo "deb-src [arch=amd64] http://apt.llvm.org/${{ steps.discover-ubuntu-codename.outputs.codename }}/ llvm-toolchain-${{ steps.discover-ubuntu-codename.outputs.codename }}-${{ inputs.llvm-major-version }} main" | sudo tee --append /etc/apt/sources.list.d/llvm.list
+
+    - shell: bash
+      run: |
+        sudo apt update
+        DEBIAN_FRONTEND=noninteractive sudo apt install --assume-yes \
+          clang-${{ inputs.llvm-major-version }} clang-tools-${{ inputs.llvm-major-version }} lld-${{ inputs.llvm-major-version }} \
+          libc6:{amd64,${{ steps.prepare-archs.outputs.archs }}} \
+          libc6-dev:{amd64,${{ steps.prepare-archs.outputs.archs }}} \
+          libgcc-12-dev:{amd64,${{ steps.prepare-archs.outputs.archs }}} \
+          libgcc-s1:{amd64,${{ steps.prepare-archs.outputs.archs }}} \
+          libstdc++-12-dev:{amd64,${{ steps.prepare-archs.outputs.archs }}} \
+          linux-libc-dev:{amd64,${{ steps.prepare-archs.outputs.archs }}}
