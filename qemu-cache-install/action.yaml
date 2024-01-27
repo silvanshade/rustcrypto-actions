@@ -1,0 +1,32 @@
+name: "qemu-cache-install"
+description: "Install QEMU artifacts from cache"
+inputs:
+  qemu-target-archs:
+    description: "Space separated list of Ubuntu architectures to configure"
+    required: true
+  qemu-full-version:
+    description: "QEMU full version"
+    required: true
+outputs:
+  cache-hit:
+    description: "Whether the cache was hit or not"
+    value: ${{ steps.qemu-restore-cache.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - id: prepare-cached-archs
+      shell: bash
+      run: |
+        ARCHS=$(echo "${{ inputs.qemu-target-archs }}" | tr -s '[:space:]' '\n' | sort | uniq | paste -sd_ -)
+        echo "archs=${ARCHS}" >> $GITHUB_OUTPUT
+
+    - id: qemu-restore-cache
+      uses: actions/cache@v4
+      with:
+        path: /opt/qemu-${{ inputs.qemu-full-version }}
+        key: ${{ runner.os }}-qemu-${{ inputs.qemu-full-version }}-${{ steps.prepare-cached-archs.outputs.archs }}
+        fail-on-cache-miss: true
+
+    - if: steps.qemu-restore-cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: echo "/opt/qemu-${{ inputs.qemu-full-version }}/bin" >> $GITHUB_PATH

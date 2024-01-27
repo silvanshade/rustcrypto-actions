@@ -1,0 +1,74 @@
+# NOTE: The GitHub Actions cache for the QEMU artifacts can be deleted manually if a new revision
+# needs to be built (with new targets, for instance) outside of QEMU version updates.
+
+name: "qemu-cache-build"
+description: "Build QEMU and cache artifacts"
+inputs:
+  qemu-target-archs:
+    description: "Space separated list of Ubuntu architectures to configure"
+    required: true
+  qemu-full-version:
+    description: "QEMU full version"
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: prepare-cached-archs
+      shell: bash
+      run: |
+        ARCHS=$(echo "${{ inputs.qemu-target-archs }}" | tr -s '[:space:]' '\n' | sort | uniq | paste -sd_ -)
+        echo "archs=${ARCHS}" >> $GITHUB_OUTPUT
+
+    - id: prepare-target-archs
+      shell: bash
+      run: |
+        ARCHS=$(echo "${{ inputs.qemu-target-archs }}" | tr -s '[:space:]' '\n' | sort | uniq | awk '{print $0"-linux-user"}' | paste -sd, -)
+        echo "archs=${ARCHS}" >> $GITHUB_OUTPUT
+
+    - id: qemu-lookup-cache
+      uses: actions/cache@v4
+      with:
+        path: /opt/qemu-${{ inputs.qemu-full-version }}
+        key: ${{ runner.os }}-qemu-${{ inputs.qemu-full-version }}-${{ steps.prepare-cached-archs.outputs.archs }}
+        lookup-only: true
+
+    - if: steps.qemu-lookup-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        sudo apt update
+        DEBIAN_FRONTEND=noninteractive sudo apt --assume-yes install \
+          build-essential \
+          curl \
+          gnupg \
+          libglib2.0-dev \
+          ninja-build \
+          pkg-config \
+          python3-venv \
+          xz-utils
+
+    - if: steps.qemu-lookup-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        mkdir -p vendor
+        cd vendor
+        curl -JLO https://download.qemu.org/qemu-${{ inputs.qemu-full-version }}.tar.xz.sig
+        curl -JLO https://download.qemu.org/qemu-${{ inputs.qemu-full-version }}.tar.xz
+        gpg --keyserver hkps://keys.openpgp.org --recv-keys CEACC9E15534EBABB82D3FA03353C9CEF108B584
+        gpg --verify qemu-${{ inputs.qemu-full-version }}.tar.xz.sig qemu-${{ inputs.qemu-full-version }}.tar.xz
+        tar xvf qemu-${{ inputs.qemu-full-version }}.tar.xz
+
+    - if: steps.qemu-lookup-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        cd vendor/qemu-${{ inputs.qemu-full-version }}
+        ./configure \
+          --prefix=/opt/qemu-${{ inputs.qemu-full-version }} \
+          --disable-debug-info \
+          --disable-system \
+          --enable-lto \
+          --static \
+          --target-list=${{ steps.prepare-target-archs.outputs.archs }} \
+          --extra-cflags="-mtune=native -O3" \
+          --extra-cxxflags="-mtune=native -O3"
+        make -j
+        make install
